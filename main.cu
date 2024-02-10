@@ -120,51 +120,65 @@ void serialize(const char *filename, const Grid<unsigned int>& data)
 
 int main()
 {
-    int length = 2048;
+    int length = 512;
     int width = length, height = length;
     Grid<unsigned int> hmap(width, height);
 
+    int min_height = 1;
+    int max_height = 3;
     std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distr(1, 3); // define the (inclusive) range
+    std::mt19937 gen(0);
+    std::uniform_int_distribution<> distr(min_height, max_height); // define the (inclusive) range
 
-    for (int row = 0; row < height; row++) {
-        for (int col = 0; col < width; col++) {
-            hmap.at(row, col) = distr(gen);
+    {
+        ScopedTimer _timer("Height Map");
+        for (int row = 0; row < height; row++) {
+            for (int col = 0; col < width; col++) {
+                hmap.at(row, col) = distr(gen);
+            }
         }
     }
 
     Grid<unsigned int> shadow(width, height);
 
-    for (int row = 0; row < height; row++) {
-        for (int col = 0; col < width; col++) {
-            bool in_shadow = false;
+    {
+        ScopedTimer _timer("Shadow Map");
+        for (int row = 0; row < height; row++) {
+            for (int col = 0; col < width; col++) {
+                bool in_shadow = false;
 
-            float curr_height = (float) hmap.at(row, col);
-            float curr_x = (float) col + 0.5f; // check from center for 50% coverage
+                float curr_height = (float) hmap.at(row, col);
+                float curr_x = (float) col + 0.5f; // check from center for 50% coverage
 
-            for (int prev_col = col - 1; prev_col >= 0; prev_col--) {
-                float prev_height = (float) hmap.at(row, prev_col);
-                float prev_x = (float) prev_col + 1.0f; // check the rightmost point as it casts the furthest shadow
+                for (int prev_col = col - 1; prev_col >= 0; prev_col--) {
+                    float prev_height = (float) hmap.at(row, prev_col);
+                    float prev_x = (float) prev_col + 1.0f; // check the rightmost point as it casts the furthest shadow
 
-                float rise = (prev_height - curr_height) / 3.0f; // slabs are 1/3 units tall
-                if (rise <= 0) break;
-                float run = curr_x - prev_x;
-                float ratio = rise / run;
-                if (ratio > 0.26795) {
-                    in_shadow = true;
-                    break;
+                    float rise = (prev_height - curr_height) / 3.0f; // slabs are 1/3 units tall
+                    if (rise <= 0) continue;
+                    float run = curr_x - prev_x;
+                    float ratio = rise / run;
+                    if (ratio > 0.26795) {
+                        in_shadow = true;
+                        break;
+                    }
+
+                    // early stoppage check based on global max height
+                    ratio = ((float)max_height - curr_height) / (3.0f * run);
+                    if (ratio < 0.26795) {
+                        break;
+                    }
                 }
-            }
 
-            shadow.at(row, col) = in_shadow ? 1 : 0;
+                shadow.at(row, col) = in_shadow ? 1 : 0;
+            }
         }
     }
-
-
-
     
-
-    serialize("tmp.png", h);
+    {
+        ScopedTimer _timer("Output");
+        serialize("heightmap.png", hmap);
+        serialize("shadowmap.png", shadow);
+    }
     return 0;
 }
