@@ -46,7 +46,7 @@ public:
     } 
 
     __host__ __device__ T& at(int index_row, int index_column) {
-        return this[index_row * width + index_column];
+        return operator[](index_row * width + index_column);
     }
 
     __host__ __device__ T& at(int index_row, int index_column) const {
