@@ -4,6 +4,25 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <random>
+#include <chrono>
+
+
+class ScopedTimer {
+ public:
+  ScopedTimer(std::string name) : m_name(std::move(name)),
+        m_beg(std::chrono::high_resolution_clock::now()) {}
+
+  ~ScopedTimer() {
+    auto end = std::chrono::high_resolution_clock::now();
+    auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - m_beg);
+    std::cout << m_name << " : " << dur.count() / 1000.0f << " ms\n";
+  }
+
+ private:
+  std::string m_name;
+  std::chrono::time_point<std::chrono::high_resolution_clock> m_beg;
+};
 
 template<typename T>
 class Grid {
