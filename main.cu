@@ -106,19 +106,21 @@ private:
     T *vals_device;
 };
 
-unsigned int rescale(unsigned int val, unsigned int data_max, unsigned int new_max) {
+int rescale(int val, int data_max, unsigned int new_max) {
     float scaled = (float)val * (float)new_max / (float)data_max;
     return (unsigned int)scaled;
 }
 
-void serialize(const char *filename, const Grid<unsigned int>& data)
+template<typename T>
+void serialize(const char *filename, const Grid<T>& data)
 {
     std::vector<unsigned char> raw_data;
     raw_data.reserve(data.width * data.height * 4);
 
-    unsigned int max = *std::max_element(data.begin(), data.end());
+    int max = *std::max_element(data.begin(), data.end());
+    int min = *std::min_element(data.begin(), data.end());
     for (int i = 0; i < data.width * data.height; i++) {
-        unsigned char byte = rescale(data[i], max, 255);
+        unsigned char byte = rescale(data[i] + min, min + max, 255);
         for (int channel = 0; channel < 3; channel++)
             raw_data.push_back(byte);
         raw_data.push_back(255);
@@ -185,6 +187,42 @@ void descend(Grid<unsigned int>& hmap, int row, int col, int& out_row, int& out_
     out_col = hmap.wrap_row(out_col);
 }
 
+void compute_shadows(const Grid<unsigned int> &hmap, Grid<bool> &shadowmap) {
+    int max = *std::max_element(hmap.begin(), hmap.end());
+
+    for (int row = 0; row < hmap.height; row++) {
+        for (int col = 0; col < hmap.width; col++) {
+            bool in_shadow = false;
+
+            float curr_height = (float) hmap.at(row, col);
+            float curr_x = (float) col + 0.5f; // check from center for 50% coverage
+
+            for (int prev_col = col - 1; ; prev_col--) {
+                float prev_height = (float) hmap.at_wrap(row, prev_col);
+                float prev_x = (float) prev_col + 1.0f; // check the rightmost point as it casts the furthest shadow
+
+                float rise = (prev_height - curr_height) / 3.0f; // slabs are 1/3 units tall
+                float run = curr_x - prev_x;
+                float ratio = rise / run;
+                if (rise > 0) {
+                    if (ratio > 0.26795) {
+                        in_shadow = true;
+                        break;
+                    }
+                }
+
+                // early stoppage check based on global max height
+                ratio = ((float)max - curr_height) / (3.0f * run);
+                if (ratio <= 0.26795) {
+                    break;
+                }
+            }
+
+            shadowmap.at(row, col) = in_shadow ? 1 : 0;
+        }
+    }
+}
+
 int main()
 {
     int length = 256;
@@ -209,40 +247,11 @@ int main()
         }
     }
 
-    Grid<unsigned int> shadow(width, height);
+    Grid<bool> shadow(width, height);
 
     {
         ScopedTimer _timer("Shadow Map");
-        for (int row = 0; row < height; row++) {
-            for (int col = 0; col < width; col++) {
-                bool in_shadow = false;
-
-                float curr_height = (float) hmap.at(row, col);
-                float curr_x = (float) col + 0.5f; // check from center for 50% coverage
-
-                for (int prev_col = col - 1; prev_col >= 0; prev_col--) {
-                    float prev_height = (float) hmap.at(row, prev_col);
-                    float prev_x = (float) prev_col + 1.0f; // check the rightmost point as it casts the furthest shadow
-
-                    float rise = (prev_height - curr_height) / 3.0f; // slabs are 1/3 units tall
-                    if (rise <= 0) continue;
-                    float run = curr_x - prev_x;
-                    float ratio = rise / run;
-                    if (ratio > 0.26795) {
-                        in_shadow = true;
-                        break;
-                    }
-
-                    // early stoppage check based on global max height
-                    ratio = ((float)max_height - curr_height) / (3.0f * run);
-                    if (ratio < 0.26795) {
-                        break;
-                    }
-                }
-
-                shadow.at(row, col) = in_shadow ? 1 : 0;
-            }
-        }
+        compute_shadows(hmap, shadow);
     }
 
     {
@@ -279,39 +288,10 @@ int main()
                 }
             }
 
-        for (int row = 0; row < height; row++) {
-            for (int col = 0; col < width; col++) {
-                bool in_shadow = false;
+            compute_shadows(hmap, shadow);
 
-                float curr_height = (float) hmap.at(row, col);
-                float curr_x = (float) col + 0.5f; // check from center for 50% coverage
-
-                for (int prev_col = col - 1; prev_col >= 0; prev_col--) {
-                    float prev_height = (float) hmap.at(row, prev_col);
-                    float prev_x = (float) prev_col + 1.0f; // check the rightmost point as it casts the furthest shadow
-
-                    float rise = (prev_height - curr_height) / 3.0f; // slabs are 1/3 units tall
-                    if (rise <= 0) continue;
-                    float run = curr_x - prev_x;
-                    float ratio = rise / run;
-                    if (ratio > 0.26795) {
-                        in_shadow = true;
-                        break;
-                    }
-
-                    // early stoppage check based on global max height
-                    ratio = ((float)max_height - curr_height) / (3.0f * run);
-                    if (ratio < 0.26795) {
-                        break;
-                    }
-                }
-
-                shadow.at(row, col) = in_shadow ? 1 : 0;
-            }
-        }
-
-        std::string name = "outputs/" + std::to_string(epoch) + ".png";
-        serialize(name.c_str(), hmap);
+            std::string name = "outputs/" + std::to_string(epoch) + ".png";
+            serialize(name.c_str(), hmap);
         }
     }
     
