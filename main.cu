@@ -44,16 +44,6 @@ public:
 #endif
     }
 
-    __host__ __device__ T& operator[](int index) {
-#ifdef __CUDA_ARCH__
-        assert (state == GPU);
-        return vals_device[index];
-#else
-        assert (state == Host);
-        return vals_host[index];
-#endif
-    }
-
     __host__ __device__ const T& operator[](int index) const {
 #ifdef __CUDA_ARCH__
         assert (state == GPU);
@@ -64,13 +54,25 @@ public:
 #endif
     } 
 
-    __host__ __device__ T& at(int index_row, int index_column) {
+    __host__ __device__ T& operator[](int index) {
+        return const_cast<T &>(static_cast<const Grid<T> &>(*this)[index]);
+    }
+
+    __host__ __device__ const T& at(int index_row, int index_column) const {
         return operator[](index_row * width + index_column);
     }
 
-    __host__ __device__ T& at_wrap(int index_row, int index_column) {
+    __host__ __device__ T& at(int index_row, int index_column) {
+        return const_cast<T &>(static_cast<const Grid<T> &>(*this).at(index_row, index_column));
+    }
+
+    __host__ __device__ const T& at_wrap(int index_row, int index_column) const {
         // TODO: use power-of-two optimization
         return at((index_row + height) % height, (index_column + width) % width);
+    }
+
+    __host__ __device__ T& at_wrap(int index_row, int index_column) {
+        return const_cast<T &>(static_cast<const Grid<T> &>(*this).at_wrap(index_row, index_column));
     }
 
     __host__ __device__ unsigned int length() const {
