@@ -66,9 +66,17 @@ public:
         return const_cast<T &>(static_cast<const Grid<T> &>(*this).at(index_row, index_column));
     }
 
+    __host__ __device__ int wrap_row(int row) const {
+        return (row + height) % height;
+    }
+
+    __host__ __device__ int wrap_col(int col) const {
+        return (col + width) % width;
+    }
+
     __host__ __device__ const T& at_wrap(int index_row, int index_column) const {
         // TODO: use power-of-two optimization
-        return at((index_row + height) % height, (index_column + width) % width);
+        return at(wrap_row(index_row), wrap_col(index_column));
     }
 
     __host__ __device__ T& at_wrap(int index_row, int index_column) {
