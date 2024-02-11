@@ -68,8 +68,9 @@ public:
         return operator[](index_row * width + index_column);
     }
 
-    __host__ __device__ T& at(int index_row, int index_column) const {
-        return this[index_row * width + index_column];
+    __host__ __device__ T& at_wrap(int index_row, int index_column) {
+        // TODO: use power-of-two optimization
+        return at((index_row + height) % height, (index_column + width) % width);
     }
 
     __host__ __device__ unsigned int length() const {
