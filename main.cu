@@ -24,6 +24,10 @@ class ScopedTimer {
   std::chrono::time_point<std::chrono::high_resolution_clock> m_beg;
 };
 
+bool ispow2(int x) {
+    return (x > 0) && ((x & (x - 1)) == 0);
+}
+
 template<typename T>
 class Grid {
 public:
@@ -31,11 +35,14 @@ public:
     unsigned int width, height;
 
     __host__ Grid(unsigned int w, unsigned int h) : width(w), height(h), state(Host) {
+        assert(ispow2(w) && ispow2(h));
         cudaMalloc(&vals_device, size());
         vals_host = (T*) calloc(length(), sizeof(T));
     }
 
-    __host__ __device__ Grid(T* vh, T* vd, unsigned int w, unsigned int h, State st = Host) : vals_host(vh), vals_device(vd), width(w), height(h), state(st) {}
+    __host__ __device__ Grid(T* vh, T* vd, unsigned int w, unsigned int h, State st = Host) : vals_host(vh), vals_device(vd), width(w), height(h), state(st) {
+        assert(ispow2(w) && ispow2(h));
+    }
 
     __host__ __device__ ~Grid() {
 #ifndef __CUDA_ARCH__
