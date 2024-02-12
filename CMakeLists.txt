@@ -20,7 +20,9 @@ add_executable(main main.cu ${HEADERS} ext/lodepng/lodepng.h ext/lodepng/lodepng
 target_include_directories(main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/)
 target_include_directories(main PUBLIC ext/lodepng)
 set_property(TARGET main PROPERTY CUDA_ARCHITECTURES 89)
+set_property(TARGET main PROPERTY CXX_STANDARD 20)
 
-target_compile_options(main PUBLIC "${DEBUG_OPTIM_FLAGS}" "")
+
+target_compile_options(main PUBLIC "${DEBUG_OPTIM_FLAGS}" "-Xcompiler=-fopenmp")
 
 target_link_libraries( main CUDA::cuda_driver )

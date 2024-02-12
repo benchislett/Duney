@@ -1,8 +1,10 @@
 #include "lodepng.h"
+#include "omp.h"
 
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <execution>
 #include <cassert>
 #include <random>
 #include <chrono>
@@ -74,11 +76,11 @@ public:
     }
 
     __host__ __device__ int wrap_row(int row) const {
-        return (row + height) % height;
+        return (row + height) & (height - 1);
     }
 
     __host__ __device__ int wrap_col(int col) const {
-        return (col + width) % width;
+        return (col + width) & (width - 1);
     }
 
     __host__ __device__ const T& at_wrap(int index_row, int index_column) const {
@@ -232,14 +234,14 @@ void compute_shadows(const Grid<unsigned int> &hmap, Grid<bool> &shadowmap) {
 
 int main()
 {
-    int length = 256;
+    int length = 512;
     int width = length, height = length;
     Grid<unsigned int> hmap(width, height);
 
     int min_height = 1;
     int max_height = 3;
     std::random_device rd;
-    std::mt19937 gen(0);
+    std::mt19937 gen(rd());
     std::uniform_int_distribution<> distr_heightmap(min_height, max_height);
     std::uniform_int_distribution<> distr_rows(0, height - 1);
     std::uniform_int_distribution<> distr_cols(0, width - 1);
@@ -261,6 +263,58 @@ int main()
         compute_shadows(hmap, shadow);
     }
 
+    // /*
+    Grid<unsigned int> hmap_next(width, height);
+    {
+        ScopedTimer _timer("Update");
+        for (int epoch = 0; epoch < 1000; epoch++) {
+            std::vector<int> entries;
+            for (int idx = 0; idx < width * height; idx++) {
+                hmap_next[idx] = hmap[idx];
+                if ((shadow[idx] == 0) && (hmap[idx] > 0)) {
+                    entries.push_back(idx);
+                }
+            }
+
+            std::shuffle(entries.begin(), entries.end(), gen);
+
+            for (int i = 0; i < entries.size(); i++) {
+                int idx = entries[i];
+
+                int row = idx / width;
+                int col = idx & (width - 1);
+
+                int erode_row, erode_col;
+                climb(hmap, row, col, erode_row, erode_col);
+                hmap_next.at(erode_row, erode_col)--;
+
+                while (true) {
+                    erode_col = hmap.wrap_col(erode_col + 1);
+                    if (shadow.at(erode_row, erode_col) == 1) {
+                        descend(hmap, erode_row, erode_col, erode_row, erode_col);
+                        hmap_next.at(erode_row, erode_col)++;
+                        break;
+                    } else {
+                        bool has_sand = hmap.at(erode_row, erode_col) > 0;
+                        if (distr_01(gen) < (has_sand ? 0.6f : 0.4f)) {
+                            descend(hmap, erode_row, erode_col, erode_row, erode_col);
+                            hmap_next.at(erode_row, erode_col)++;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            for (int i = 0; i < width * height; i++) hmap[i] = hmap_next[i];
+            compute_shadows(hmap, shadow);
+
+            // std::string name = "outputs/" + std::to_string(epoch) + ".png";
+            // serialize(name.c_str(), hmap);
+        }
+    }
+    // */
+
+    /*
     {
         ScopedTimer _timer("Update");
         for (int epoch = 0; epoch < 1000; epoch++) {
@@ -297,10 +351,11 @@ int main()
 
             compute_shadows(hmap, shadow);
 
-            std::string name = "outputs/" + std::to_string(epoch) + ".png";
-            serialize(name.c_str(), hmap);
+            // std::string name = "outputs/" + std::to_string(epoch) + ".png";
+            // serialize(name.c_str(), hmap);
         }
     }
+    */
     
     {
         ScopedTimer _timer("Output");
