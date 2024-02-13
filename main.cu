@@ -31,14 +31,14 @@ bool ispow2(int x) {
 }
 
 template<typename T>
-class Grid {
-public:
+struct Grid {
     enum State {Host, GPU} state;
     unsigned int width, height;
 
     __host__ Grid(unsigned int w, unsigned int h) : width(w), height(h), state(Host) {
         assert(ispow2(w) && ispow2(h));
         cudaMalloc(&vals_device, size());
+        cudaMemset(vals_device, 0, size());
         vals_host = (T*) calloc(length(), sizeof(T));
     }
 
@@ -95,7 +95,6 @@ public:
     }
 
     __host__ __device__ const T& at_wrap(int index_row, int index_column) const {
-        // TODO: use power-of-two optimization
         return at(wrap_row(index_row), wrap_col(index_column));
     }
 
@@ -121,7 +120,6 @@ public:
         return vals_host + (width * height);
     }
 
-private:
     T *vals_host;
     T *vals_device;
 };
@@ -207,6 +205,45 @@ void descend(Grid<unsigned int>& hmap, int row, int col, int& out_row, int& out_
     out_col = hmap.wrap_row(out_col);
 }
 
+__global__ void shadow_kernel(unsigned int* hmapptr, bool *shadowmapptr, int width, int height, float maxval) {
+    Grid<unsigned int> hmap(NULL, hmapptr, width, height);
+    Grid<bool> shadowmap(NULL, shadowmapptr, width, height);
+
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int row = tid / hmap.width;
+    int col = tid & (hmap.width - 1);
+
+    bool in_shadow = false;
+
+    float curr_height = (float) hmap.at(row, col);
+    float curr_x = (float) col + 0.5f; // check from center for 50% coverage
+
+    for (int prev_col = col - 1;; prev_col--) {
+        float prev_height = (float) hmap.at_wrap(row, prev_col);
+        float prev_x = (float) prev_col + 1.0f; // check the rightmost point as it casts the furthest shadow
+
+        float rise = (prev_height - curr_height) / 3.0f; // slabs are 1/3 units tall
+        float run = curr_x - prev_x;
+        float ratio = rise / run;
+        if (rise > 0) {
+            if (ratio > 0.26795) {
+                in_shadow = true;
+                break;
+            }
+        }
+
+        // early stoppage check based on global max height
+        ratio = ((float)maxval - curr_height) / (3.0f * run);
+        if (ratio <= 0.26795) {
+            break;
+        }
+    }
+
+    __syncthreads();
+
+    shadowmap.at(row, col) = in_shadow ? 1 : 0;
+}
+
 void compute_shadows(const Grid<unsigned int> &hmap, Grid<bool> &shadowmap) {
     int max = *std::max_element(hmap.begin(), hmap.end());
 
@@ -245,14 +282,14 @@ void compute_shadows(const Grid<unsigned int> &hmap, Grid<bool> &shadowmap) {
 
 int main()
 {
-    int length = 512;
+    int length = 1024;
     int width = length, height = length;
     Grid<unsigned int> hmap(width, height);
 
     int min_height = 1;
     int max_height = 3;
     std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(0);
     std::uniform_int_distribution<> distr_heightmap(min_height, max_height);
     std::uniform_int_distribution<> distr_rows(0, height - 1);
     std::uniform_int_distribution<> distr_cols(0, width - 1);
@@ -271,10 +308,32 @@ int main()
 
     {
         ScopedTimer _timer("Shadow Map");
-        compute_shadows(hmap, shadow);
+        {
+            ScopedTimer __timer("Copy To GPU");
+            hmap.migrate(Grid<unsigned int>::GPU);
+            shadow.migrate(Grid<bool>::GPU);
+            cudaDeviceSynchronize();
+        }
+
+        {
+            ScopedTimer __timer("Kernel execution");
+            int threads_per_block = 64;
+            int num_blocks = (width * height) / threads_per_block;
+            shadow_kernel<<<num_blocks, threads_per_block>>>(hmap.vals_device, shadow.vals_device, width, height, (float)max_height);
+            cudaDeviceSynchronize();
+        }
+
+        {
+            ScopedTimer __timer("Copy From GPU");
+            hmap.migrate(Grid<unsigned int>::Host);
+            shadow.migrate(Grid<bool>::Host);
+            cudaDeviceSynchronize();
+        }
     }
 
-    // /*
+
+
+    /*
     Grid<unsigned int> hmap_next(width, height);
     {
         ScopedTimer _timer("Update");
@@ -323,7 +382,7 @@ int main()
             // serialize(name.c_str(), hmap);
         }
     }
-    // */
+    */
 
     /*
     {
