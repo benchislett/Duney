@@ -53,6 +53,17 @@ public:
 #endif
     }
 
+    __host__ void migrate(State st) {
+        if (st == state)
+            return;
+        if (st == Host) {
+            cudaMemcpy(vals_host, vals_device, size(), cudaMemcpyDeviceToHost);
+        } else {
+            cudaMemcpy(vals_device, vals_host, size(), cudaMemcpyHostToDevice);
+        }
+        state = st;
+    }
+
     __host__ __device__ const T& operator[](int index) const {
 #ifdef __CUDA_ARCH__
         assert (state == GPU);
